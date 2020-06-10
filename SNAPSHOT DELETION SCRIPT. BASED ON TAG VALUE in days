@@ -1,0 +1,123 @@
+#!/bin/bash
+
+##########Made By Nitin Verma###########
+
+ 
+
+mail_to="linuxadminsupport@htdigital.in johnson.asir@htdigital.in gaurav.sharma2@htdigital.in"
+
+aws ec2 describe-snapshots --profile $1 --query 'Snapshots[?!not_null(Tags[?Key==`Retention`].Value)].[SnapshotId]' --owner-ids self > snaps
+
+ 
+
+aws ec2 describe-snapshots --profile default --query 'Snapshots[?not_null(Tags[?Key==`Retention`].Value)].[SnapshotId,Tags[?Key==`Retention`].Value]' --owner-ids self | grep -B1 ^[0-9] | grep ^snap-* >> snaps
+
+ 
+
+for i in `cat snaps`
+
+do
+
+RETENTION=$(aws ec2 describe-snapshots --snapshot-ids $i --profile $1 --output text --query 'Snapshots[*].Tags[?Key==`Retention`].Value')
+
+sleep 1s
+
+echo $RETENTION
+
+ 
+
+case $RETENTION in
+
+ 
+
+"")  echo "$i Can be deleted, using default 30 days policy"
+
+     TIMESTAMP=$(aws ec2 describe-snapshots --snapshot-ids $i --query 'Snapshots[*].[StartTime]' --profile $1)
+
+     CREATETIME=$(echo "$TIMESTAMP" | cut -c 1-10)
+
+     CREATETIMEINSECS=$(date --date="$CREATETIME" +%s)
+
+     FUTUREDATE=$(date -d "$CREATETIME + 30 days " +%s)
+
+     CURRENTDATE=$(date +%s)
+
+     if [ $CURRENTDATE -le $FUTUREDATE ]
+
+     then
+
+       echo "No Need to delete, as snapshot is still under 30 days retention period"
+
+       #echo "Snapshot $i will be deleted on $(date --date=@"$FUTUREDATE" "+%d-%m-%Y")" | mail -s "SNAPSHOT DELETION REMINDER"  $mail_to
+
+       echo "Snapshot $i will be deleted on $(date --date=@"$FUTUREDATE" "+%d-%m-%Y")" > snapshots-to-delete.txt
+
+ 
+
+     else
+
+        echo "Put delete logic here"
+
+       # aws ec2 delete-snapshot --snapshot-id $i --profile $1
+
+        #echo "Snapshot $i Deleted on $(date  "+%d-%m-%Y")" | mail -s "SNAPSHOT DELETION REMINDER" $mail_to
+
+        echo "Snapshot $i Deleted on $(date  "+%d-%m-%Y")" >> snapshots-to-delete.txt
+
+     fi
+
+     ;;
+
+"Always")
+
+    echo "Always Retention Policy!! No Deletion"
+
+    ;;
+
+*)  echo "$i Can be deleted"
+
+     TIMESTAMP=$(aws ec2 describe-snapshots --snapshot-ids $i --query 'Snapshots[*].[StartTime]' --profile $1)
+
+     CREATETIME=$(echo "$TIMESTAMP" | cut -c 1-10)
+
+     CREATETIMEINSECS=$(date --date="$CREATETIME" +%s)
+
+     FUTUREDATE=$(date -d "$CREATETIME + $RETENTION days " +%s)
+
+     CURRENTDATE=$(date +%s)
+
+     if [ $CURRENTDATE -le $FUTUREDATE ]
+
+     then
+
+       echo "No Need to delete, as snapshot is still under $RETENTION days retention period"
+
+       #echo "Snapshot $i will be deleted on $(date --date=@"$FUTUREDATE" "+%d-%m-%Y")" | mail -s "SNAPSHOT DELETION REMINDER" $mail_to
+
+       echo "Snapshot $i will be deleted on $(date --date=@"$FUTUREDATE" "+%d-%m-%Y")">> snapshots-to-delete.txt
+
+     else
+
+       echo "Put delete logic here"
+
+       # aws ec2 delete-snapshot --snapshot-id $i --profile $1
+
+       #echo "Snapshot $i Deleted on $(date  "+%d-%m-%Y")" | mail -s "SNAPSHOT DELETION REMINDER" $mail_to
+
+       echo "Snapshot $i Deleted on $(date  "+%d-%m-%Y")" >> snapshots-to-delete.txt
+
+     fi
+
+     ;;
+
+ 
+
+esac
+
+done
+
+echo "AUTOMATED MAIL FOR SNAPSHOT DELETION INFORMATION" | mailx -s "SNAPSHOT DELETION REMINDER" -a snapshots-to-delete.txt $mail_to
+
+ 
+
+rm -rf snapshots-to-delete.txt
